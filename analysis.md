@@ -173,4 +173,197 @@ job:
 
 ## 6. 최종 산출물 (8단계 출력 전문)
 
-> 8단계 완료 후 추가 기록.
+### 6.1 제안서 사이트 URL
+
+https://proposal-router.claude-ai-b27.workers.dev/proposal-beauty-designer-crm-app/
+
+### 6.2 지원 금액 (복사용)
+
+```
+45,000,000원
+```
+
+### 6.3 지원 기간 (복사용)
+
+```
+120일
+```
+
+### 6.4 클라이언트 질문 답변 (복사용)
+
+**Q1. 초보 디자이너부터 경력 디자이너까지 모두 사용하는 B2B2C 플랫폼이므로, 디자이너 간의 고객 데이터 격리 및 권한 제어가 매우 중요합니다.**
+
+A. 디자이너 간 고객 데이터 격리는 애플리케이션 레이어가 아닌 DB 레이어에서 강제하는 것을 원칙으로 합니다.
+
+1) 데이터 모델 — 모든 고객 관련 테이블(예약, 처방전, 쿠폰, 포인트, 단골관계)에 designer_id 외래키를 두고, 인덱스를 함께 생성하여 디자이너 단위 쿼리를 표준화합니다.
+
+2) Row-Level Security (RLS) — PostgreSQL RLS 정책을 활성화하여 JWT에서 추출한 디자이너 ID와 행의 designer_id가 일치하는 데이터만 조회·수정 가능하도록 DB 레벨에서 강제합니다. 애플리케이션 코드에 버그가 있어도 다른 디자이너의 데이터 노출이 원천 차단됩니다.
+
+3) 권한 제어 (RBAC) — CASL 기반으로 디자이너/관리자/슈퍼관리자 역할을 분리하고, 디자이너는 본인 단골만 조회/수정, 관리자는 본인 매장 디자이너 단위만 통계 조회, 슈퍼관리자만 전체 데이터 접근 가능하도록 정책을 정의합니다.
+
+4) 감사 추적 — 모든 데이터 조회/변경 이력을 Audit Log에 기록하여 사후 검증 및 분쟁 시 근거 자료로 활용합니다.
+
+5) 개인정보 암호화 — 이름·휴대폰·생년월일 등 식별 정보는 AES-256으로 암호화 저장하고 마스킹 처리하여 운영자 화면에서도 최소 노출 원칙을 유지합니다.
+
+해당 모델은 멀티테넌트 SaaS(시설별 격리) 프로젝트에서 6개 역할 RBAC + 시설별 데이터 격리로 검증한 구조이며, 본 프로젝트의 디자이너 단위 격리 요구사항에 직접 적용 가능합니다.
+
+
+**Q2. 본 비즈니스의 핵심은 오프라인 매장에서 '고객이 디자이너의 고유 QR 스캔 → 스토어 이동 및 앱 첫 설치 → 가입 완료 시 해당 디자이너의 단골로 자동 매칭'되는 디퍼드 딥링크(Deferred Deep Link) 기술입니다. 유실 없는 트래킹을 위해 어떤 솔루션(예: AppsFlyer, Branch.io 등)을 제안하시며, 구체적인 라우팅 설계 로직은 어떻게 구현하실 계획입니까?**
+
+A. Branch.io를 제안합니다. 비용 효율(MAU 10K까지 무료, 이후도 AppsFlyer보다 저렴), 한국 시장에서의 카카오톡 인앱 브라우저 우회 노하우 축적, Flutter 공식 SDK 안정성, 그리고 가장 중요한 디퍼드 딥링크 정확도(99% 이상)가 핵심 근거입니다.
+
+라우팅 설계는 다음 흐름으로 구현합니다.
+
+1) QR 코드 생성 — 디자이너 가입 시 unique slug(예: brand.io/d/abc123) + Branch deep_link_data에 designer_id를 이중 인코딩한 QR을 발급합니다. 두 채널에 동일 정보를 담아 어떤 환경에서도 매칭 정보 유실을 방지합니다.
+
+2) QR 스캔 — 사용자가 카메라로 QR 스캔 시 디자이너 매칭 정보가 담긴 Branch URL이 열립니다.
+
+3) 환경 분기 라우팅
+   - 일반 브라우저 (Safari/Chrome) — Branch가 자동으로 Universal Link/App Link 처리, 앱 미설치 시 스토어로 라우팅
+   - 카카오톡 인앱 브라우저 — User-Agent 감지 후 자체 호스팅 폴백 페이지로 리디렉션. 폴백 페이지는 "외부 브라우저로 열기" 안내 + intent:// 스킴(Android) / itms-apps://(iOS) 직접 호출로 우회
+   - 앱 설치된 경우 — Branch SDK가 즉시 앱을 띄우고 designer_id 전달, 앱 내에서 단골 등록 처리
+
+4) 첫 실행 시 매칭 — 앱 첫 실행 시 Branch.initSession()으로 deep_link_data 수신, 가입 완료 시 designer_customer 관계 테이블에 단골 관계 INSERT.
+
+5) 유실 방지 백업 — Branch 매칭 실패 시 사용자가 가입 시 입력한 휴대폰 번호와 디자이너의 골든타임 리커버리 발송 이력을 매칭하는 폴백 로직을 추가하여 트래킹 손실 시나리오에서도 단골 관계 복구가 가능합니다.
+
+해당 설계는 디지털 명함 매칭 플랫폼에서 OCR 매칭 + 외부 슈퍼앱 OAuth 라우팅으로 검증한 패턴이며, 본 프로젝트의 카카오톡 인앱 우회 + 디퍼드 매칭 요구사항에 직접 활용합니다.
+
+### 6.5 지원 내용 (전체 텍스트, 복사용)
+
+```
+안녕하세요, 뷰티 디자이너 고객관리(CRM) 앱 MVP 개발 프로젝트에 지원합니다.
+
+본 프로젝트에 대한 상세 제안서(견적서, 공수계산서, PRD, 일정, 포트폴리오)를 별도 페이지로 준비하였습니다. 아래 링크에서 확인해 주시면 감사하겠습니다.
+▶ 제안서 상세 페이지: https://proposal-router.claude-ai-b27.workers.dev/proposal-beauty-designer-crm-app/
+▶ 위시켓 포트폴리오: https://www.wishket.com/partners/p/blueverse1/
+
+---
+
+<프로젝트 진행 제안>
+
+■ 프로젝트 분석
+- 디자이너의 단골 자산화 + 시술 후 커머스가 결합된 B2B2C SaaS 플랫폼의 Phase 1 MVP 구축
+- 4대 핵심 차별화 기능(양방향 웨이팅, 홈케어 커머스, 디자이너 전용 쿠폰, 단골 자동 매칭)을 4개월 내 베타 출시 가능 수준으로 완성
+- Flutter 시연 코드(UI 70%) 점진 고도화 + 백엔드/DB/관리자 웹 신규 구축
+
+■ 핵심 비즈니스 로직 구현 방안
+
+1) 양방향 웨이팅 동시성 제어
+- PostgreSQL SELECT FOR UPDATE SKIP LOCKED + Redis 분산락(Redlock) 조합으로 다중 동시 수락 시 단일 결제만 통과 보장
+- 서버 시간 기준 15분 타이머는 BullMQ 백그라운드 워커가 만료 시 자동으로 다음 큐 1순위에게 이전 처리
+- 자동/수동 발송 정책은 1주차 정책 결정 워크숍에서 확정
+
+2) 환불·위약금 회계
+- 모든 거래를 복식부기 방식의 ledger 테이블에 차변/대변 동시 기록
+- 24h/12h/6h 차등 환불 정책은 정책 테이블에서 동적 조회 → 정책 변경 시 코드 배포 없이 운영 가능
+- 모든 변경 이력을 Audit Log에 보존하여 결제·환불 트랜잭션 무결성 보장
+
+3) QR 디퍼드 딥링크
+- Branch.io 기반 Universal Link/App Link + 자체 호스팅 폴백 페이지로 카카오톡 인앱 브라우저 우회
+- 디자이너 ID는 QR URL의 unique slug + Branch deep_link_data에 이중 인코딩하여 매칭 정보 유실 방지
+- 매칭 실패 시 휴대폰 번호 기반 폴백 매칭 로직 추가
+
+4) 커머스 정산
+- 결제 완료 시 디자이너/플랫폼 ledger에 50:50 분개를 동시 기록
+- 월 단위로 디자이너 송금 가능 잔액 자동 집계
+
+■ 디자이너 간 데이터 격리
+- PostgreSQL Row-Level Security(RLS) 정책으로 DB 레벨에서 강제
+- CASL 기반 RBAC로 디자이너/관리자/슈퍼관리자 권한 분리
+- 개인정보(이름·휴대폰)는 AES-256 암호화 저장
+
+■ 작업 일정 (총 120일)
+
+[Phase 1] Day 1–14 (2주) — 기획·정책 확정
+- 정책 결정 워크숍 (15분 웨이팅 알림, 환불 정책, 위약금 산정 등 미확정 항목 일괄 협의)
+- ERD, API 명세서(Swagger), 화면 흐름도 완료
+
+[Phase 2] Day 15–30 (2주) — 디자인 보완·인프라 셋업
+- 시연 코드 누락 화면 Figma 보완
+- AWS 인프라 프로비저닝, NestJS 골격, DB 스키마, CI/CD 구축
+
+[Phase 3] Day 31–70 (약 6주) — 백엔드 + Flutter B2B 디자이너 앱
+- 인증·권한·RLS, 양방향 웨이팅 큐 + Redis 분산락, 환불·정산 ledger
+- 디자이너 앱 본격 개발 (시연 코드 Riverpod 도입)
+
+[Phase 4] Day 71–100 (약 4주) — Flutter B2C + 외부 연동 + 관리자 웹
+- 고객 앱, 포트원 결제, FCM·알림톡, Branch.io 디퍼드 딥링크
+- React 18 + TypeScript 관리자 웹 구축
+
+[Phase 5] Day 101–120 (3주) — QA·배포·런칭
+- 통합 테스트, 동시성 시나리오 검증, 결제 sandbox 검증
+- App Store/Play Store 심사, 배포 가이드 및 운영 매뉴얼 작성
+
+■ 마일스톤 및 산출물
+- M1 (Day 14): 정책 결정서, ERD, API 명세서 승인
+- M2 (Day 30): AWS 인프라 가동, CI/CD 정상 동작
+- M3 (Day 70): 디자이너 앱 알파 + 핵심 비즈니스 로직 1차 완료
+- M4 (Day 100): B2B/B2C/Admin 통합 베타 후보 빌드
+- M5 (Day 120): 스토어 등록 통과, Phase 1 MVP 베타 런칭
+- 최종 산출물: Flutter 앱 소스코드(B2B/B2C), 백엔드 소스코드 + DB 스키마/마이그레이션, 관리자 웹 소스코드, API 문서(Swagger), 배포 가이드 및 운영 매뉴얼 v1
+
+■ 미팅 시 협의 필요 사항
+- 개발 명세서 v3.1 공유 후 본 PRD와 정합화
+- 인프라 선택 (AWS vs NCP) — 클라이언트 선호 확인
+- 본인인증 PG 선택 (NICE/KCB/Toss 본인인증)
+- 알림톡 발송사 선택 및 사전 템플릿 등록 일정
+- Phase 2 고도화 범위 선제 정의 (월 단위 유지보수 계약 연계)
+
+---
+
+<유사 프로젝트 진행 경험>
+
+▶ 시니어 주간보호센터 통합 관리 플랫폼 (약 6개월)
+- 프로젝트 유형: B2B SaaS · 멀티테넌트 · 헬스케어 (Flutter + NestJS + 6 플랫폼)
+- 핵심 기능: 멀티테넌트 아키텍처(시설별 격리), RBAC 6개 역할 + 6단계 보안, 전자서명 투약의뢰서, AI 건강분석, 140+ API 엔드포인트, 90개 DB 마이그레이션, AWS CDK 자동화
+- 유사점: Flutter+NestJS+PostgreSQL/MySQL 동일 스택, 멀티테넌트 데이터 격리(디자이너별 격리에 동일 패턴 적용), RBAC 역할 분리, AWS CDK 인프라 자동화, 전자서명·서명 패턴(처방전·홈케어가이드 발급에 활용)
+- 기술 스택: Flutter 3.35, BLoC, NestJS 10, TypeORM, MySQL 8, Next.js, CASL RBAC, AWS CDK, Firebase FCM
+
+▶ 필라테스 프랜차이즈 통합 관리 플랫폼 (4개월)
+- 프로젝트 유형: B2B2C · 예약 · 결제 · 프랜차이즈 (3 플랫폼 동시 출시)
+- 핵심 기능: 다지점 통합 관리, 수업 예약+자동 알림, 수강권·이용권 온라인 결제, 매출 대시보드, 강사-회원 실시간 채팅, no-show 방지 알림
+- 유사점: 예약+결제 통합 구조(시술 예약+쿠폰/포인트 복합 결제와 동일), 프랜차이즈 다지점=디자이너 멀티테넌트(데이터 격리 직접 활용), 4단계 권한 분리(운영자/디자이너/고객 모델 재사용), 3 플랫폼 동시 출시 일정 관리, 4개월 동급 풀스코프 딜리버리
+- 기술 스택: React Native, React, Node.js, FCM/APNs, WebSocket
+
+▶ 디지털 명함 & 프로페셔널 네트워킹 플랫폼 (3개월)
+- 프로젝트 유형: B2B 매칭 플랫폼 · OCR · BLE 근거리 탐색 · E2E 암호화
+- 핵심 기능: Signal Protocol E2E 암호화 메시징, OCR 명함 스캐닝, BLE+GPS 근거리 탐색, 12개 마이크로서비스, 63 API 엔드포인트, Zalo 슈퍼앱 OAuth/웹훅 심층 연동, 관리자 패널
+- 유사점: 오프라인-디지털 매칭 패턴(OCR 명함 매칭 ↔ QR 디퍼드 딥링크 단골 매칭 동일 컨셉), Flutter Clean Architecture+BLoC(Riverpod 동등 패턴), 외부 슈퍼앱 OAuth 연동(카카오/네이버 소셜 로그인+본인인증 PG에 직접 활용), 3 플랫폼 동시 딜리버리, 3개월 빠른 MVP 출시 검증
+- 기술 스택: Flutter 3.22, BLoC, Express.js, PostgreSQL, Next.js, Signal Protocol, AWS KMS, Firebase
+
+---
+
+<사용 기술과 툴>
+
+▶ 개발 기술
+- Mobile: Flutter 3.x (Dart) + Riverpod 상태관리
+- Backend: NestJS 10 + TypeScript + TypeORM
+- Database: PostgreSQL 15 (RLS 적용) + Redis 7 (분산락·캐시·BullMQ)
+- Admin Web: React 18 + TypeScript + Next.js
+- Infrastructure: AWS (또는 NCP) + Docker
+- 외부 연동: Branch.io (딥링크), 포트원 (결제), FCM (푸시), 알림톡, KISA 인증 PG (본인인증)
+
+▶ 개발 도구 및 인프라
+- 버전 관리: GitHub
+- CI/CD: GitHub Actions
+- 클라우드: AWS (RDS Multi-AZ, ElastiCache, ECS, S3) 또는 NCP
+- 컨테이너: Docker
+- 모니터링: CloudWatch + Slack 알림 연동
+
+▶ 커뮤니케이션
+- 일일 진행 공유: Slack 또는 카카오톡
+- 주간 미팅: Zoom / Google Meet (요일·시간 협의)
+- 문서 공유: Notion 또는 Google Docs
+- 이슈 트래킹: GitHub Issues 또는 Linear
+- API 문서: Swagger UI 자동 배포
+```
+
+### 6.6 관련 포트폴리오 추천
+
+위시켓 폼의 "관련 포트폴리오" 섹션에 아래 프로젝트를 선택/입력:
+
+1. **시니어 주간보호센터 통합 관리 플랫폼 (Harmony Link)** — Flutter+NestJS+PostgreSQL 동일 스택 + 멀티테넌트 데이터 격리 + RBAC 6 역할 (디자이너 데이터 격리 답변에 직접 매칭)
+2. **필라테스 프랜차이즈 통합 관리 플랫폼 (Pilates App)** — 예약+결제+프랜차이즈+B2B2C 도메인 정확 일치, 4개월 3 플랫폼 동시 출시 경험
+3. **디지털 명함 & 프로페셔널 네트워킹 플랫폼 (Connectin)** — Flutter Clean Architecture + 외부 매칭(QR/OCR) 패턴 + 카카오톡 인앱 우회 노하우 (디퍼드 딥링크 답변에 직접 매칭)
+
