@@ -1040,34 +1040,36 @@
               </ul>
 
               <h2>2. 정책 답변 — 개발 명세서 부록 C (검토 필요 사항)</h2>
-              <blockquote><strong>Production-grade 답변 기준</strong><br/>
-              본 프로젝트는 "통상적인 MVP"가 아니라 <strong>실제 결제·정산·동시성을 다루는 production 서비스</strong>입니다. 디자이너의 실제 매출과 고객의 실제 결제가 처음부터 흐르고, 단골 관계는 비즈니스 핵심 자산이므로, 답변은 다음 기준으로 작성하였습니다.<br/>
-              ① 결제·정산·격리·동시성 관련은 <strong>처음부터 production 표준 사양 적용</strong> (예: RDS Multi-AZ, RLS, 멱등성 키, 정산 ledger 복식부기, audit_logs 3년 보관)<br/>
-              ② 명세서 사양 중 실제 서비스에서 흔히 채택되는 것은 그대로 수용, 실제 운영에 효익이 낮거나 거대 핀테크 수준이 요구되는 것만 단계 도입<br/>
-              ③ 솔루션·라이브러리 도입은 종속성·비용·효익 대비 자체 구현이 가능한 부분은 자체 구현 권장 (예: 디퍼드 딥링크)<br/>
-              ④ 전자상거래법·PIPA·전자금융거래법 등 한국 규제 요건 반영<br/>
-              1주차 정책 결정 워크숍에서 본 답변을 베이스로 협의·확정합니다.</blockquote>
+              <p>본 항목은 개발 명세서 v3.1 부록 C "검토 필요 사항"에 대한 답변입니다. 본 견적 및 일정(MVP 4,250만원·120일) 범위 내에서 실제 운영 가능한 수준으로 구현하는 것을 전제로 한 구현 방향 및 정책 제안을 정리하였으며, 1주차 정책 결정 워크숍에서 클라이언트와 협의·확정하는 것을 전제로 합니다.</p>
 
               <h3>2.1 양방향 웨이팅 시스템 (명세서 5.1, 11.3)</h3>
+
+              <p><strong>작동 흐름 (사용자 관점)</strong></p>
+              <ol>
+                <li>고객이 마감 시간대 슬롯에 웨이팅 신청 → 대기열에 등록 (FIFO 순서)</li>
+                <li>예약자가 취소 발생 → 대기열 1순위 고객에게 15분 타임어택 푸시 전송</li>
+                <li>1순위 고객이 15분 내 결제 완료 → 슬롯 확정, 대기열에서 제거</li>
+                <li>1순위 고객이 15분 내 결제하지 않음 → 자동으로 2순위로 이전, 15분 타이머 다시 시작</li>
+                <li>대기열이 소진되거나 누군가 결제 완료할 때까지 반복</li>
+              </ol>
+
+              <p><strong>기술 구현 방식</strong></p>
               <ul>
-                <li><strong>자동/수동 발송 정책</strong>: 비즈니스 결정. 제안: <em>주간(08-22) 자동 / 야간(22-08) 수동</em> 기본값, 워크숍에서 확정. 기술 구현은 동일 난이도</li>
-                <li><strong>동시성 제어 — production 표준 패턴</strong>:
-                  <ul>
-                    <li>PostgreSQL 트랜잭션 + <code>SELECT FOR UPDATE</code> 행 잠금 — 단일 RDS 환경에서 검증된 표준 패턴 (국내 예약·티켓팅 서비스 다수가 사용)</li>
-                    <li><strong>멱등성 키(Idempotency-Key) 헤더 적용</strong> — 네트워크 재시도·중복 클릭으로 인한 다중 요청을 단일 처리로 보장 (예약 수락, 결제 API 모두 적용)</li>
-                    <li>모든 상태 전환은 <strong>audit_logs 기록</strong> (큐 등록 → 푸시 발송 → 수락/거절/만료 → 결제 완료) — 분쟁 대응 + 정합성 검증</li>
-                    <li>그레이스 핸들링: 결제 페이지 진입 직전 만료된 케이스 처리 (서버 시점 재확인 + 재시도 안내)</li>
-                  </ul>
-                </li>
-                <li><strong>15분 타이머 — production 표준</strong>:
-                  <ul>
-                    <li><strong>BullMQ delayed job</strong> (Redis 기반) — 정확한 시간 후 자동 발동, 분산 환경 대응, 재시도·실패 처리 내장</li>
-                    <li>큐 1순위 미수락 시 자동으로 다음 순위 이전 → 큐 소진까지 반복</li>
-                    <li>BullMQ 작업 상태 모니터링 대시보드(Bull Board) 운영자 콘솔 연동</li>
-                  </ul>
-                </li>
-                <li><strong>서버 시간 기준</strong>: AWS/NCP는 자동 NTP 동기화 (오차 수 ms 수준). 클라이언트 타이머는 서버 응답의 절대 시각 기준 동기화하여 클라이언트 시계 변조 방어 — production 표준</li>
-                <li><strong>분산락(Redlock) 도입 시점</strong>: 백엔드 다중 인스턴스로 수평 확장 시(예: ECS multiple tasks). MVP는 단일 인스턴스 + RDS Multi-AZ로 시작하므로 미적용이나, Redis 자체는 BullMQ·캐싱용으로 이미 도입되므로 추후 Redlock 도입 용이</li>
+                <li><strong>대기열 저장</strong>: Redis FIFO 큐(LIST 자료구조)에 사용자 ID를 순서대로 저장. 푸시·자동 이전 시 1순위를 원자적으로 추출(LPOP). Redis 특성상 큐 read/write 속도가 빠르고 순서 보장이 명확</li>
+                <li><strong>결제 확정 시 DB 기록</strong>: 사용자가 결제 완료하면 PostgreSQL <code>reservations</code> 테이블에 예약 INSERT + 대기열에서 해당 사용자 제거를 단일 트랜잭션으로 처리. 슬롯 점유는 결제 확정 시점에 DB에 영구 기록</li>
+                <li><strong>15분 타이머</strong>: Redis TTL 키 활용. 1순위에게 푸시 발송 시 <code>SET active_waiting:slot_id user_id EX 900</code> (900초). TTL 만료 이벤트 감지(Redis Keyspace Notifications) 또는 1분 주기 폴링으로 만료된 슬롯을 자동으로 다음 사용자에게 이전</li>
+                <li><strong>다중 사용자 동시 결제 시도 동시성 제어</strong>: 결제 확정 트랜잭션에서 PostgreSQL <code>SELECT FOR UPDATE</code>로 슬롯 행 잠금. 동시에 결제 버튼을 눌러도 트랜잭션이 순차 처리되어 단일 고객만 통과</li>
+                <li><strong>중복 요청 방어</strong>: 결제·예약 수락 API에 멱등성 키(Idempotency-Key) 헤더 적용. 네트워크 재시도·중복 클릭에도 단일 처리 보장</li>
+                <li><strong>상태 추적</strong>: 큐 등록 → 푸시 발송 → 수락/거절/만료 → 결제 완료 전 과정을 audit_logs에 기록 (분쟁 대응 및 정합성 검증용)</li>
+                <li><strong>알림</strong>: FCM 푸시 기본, 앱 비활성 사용자는 알림톡 fallback</li>
+                <li><strong>시간 기준</strong>: AWS/NCP 서버는 NTP가 자동 동기화되어 있어 서버 시각 기준으로 타이머 운영. 클라이언트 앱 타이머는 서버 응답의 절대 시각을 기준으로 동기화하여 클라이언트 시계 변조에 대비</li>
+              </ul>
+
+              <p><strong>자동/수동 발송 정책 제안</strong></p>
+              <ul>
+                <li>주간(08:00~22:00): 자동 발송 — 취소 발생 즉시 1순위에게 푸시</li>
+                <li>야간(22:00~08:00): 수동 발송 권장 — 사용자가 새벽에 푸시 받는 부담을 줄이기 위해, 디자이너가 다음 날 오전 확인 후 수동으로 발송 트리거</li>
+                <li>위 기본값은 1주차 정책 워크숍에서 협의 후 확정</li>
               </ul>
 
               <h3>2.2 환불·위약금 4시점 정책 (명세서 5.2)</h3>
@@ -1083,246 +1085,245 @@
                   <tr><td>노쇼</td><td>없음</td><td>시술료 30%</td><td>수동 (디자이너 신고 → 자동)</td></tr>
                 </tbody>
               </table>
+              <p><strong>구현 방식</strong></p>
               <ul>
-                <li><strong>1시간 그레이스</strong>: 예약 시간 1시간 이내 1회에 한해 변경 가능 (DB 플래그 + audit_logs)</li>
-                <li><strong>환불 정책 테이블</strong>: 시점별 환불 비율을 DB 테이블로 관리 → 정책 변경 시 코드 배포 없이 운영자 콘솔에서 수정 (production 표준)</li>
-                <li><strong>PortOne 환불 API 호출 + webhook 수신</strong>으로 환불 완료 확정 (멱등성 처리 필수)</li>
-                <li><strong>부분 환불 (Partial Refund)</strong>: 현금 + 포인트 분할 처리 (예: 70% 현금 환불 + 30% 포인트 환불을 단일 트랜잭션으로 보장)</li>
-                <li><strong>정산 정합성</strong>: 이미 디자이너에게 정산된 결제 환불 시 → 디자이너 잔액에서 차감 → 다음 정산 사이클에 반영. 음수 잔액 발생 시 운영자 알림 + 다음 매출에서 자동 상쇄</li>
-                <li><strong>환불 실패 재시도</strong>: PG 오류·한도 초과·네트워크 오류 시 BullMQ 재시도 큐 등록(1분 → 5분 → 30분 backoff), 3회 실패 후 운영자 콘솔 알림</li>
+                <li><strong>환불 정책 테이블</strong>: 시점별 환불 비율을 DB 정책 테이블로 관리하여 정책 변경 시 코드 배포 없이 운영자 콘솔에서 수정 가능</li>
+                <li><strong>1시간 그레이스</strong>: 예약 시간 1시간 이내 1회에 한해 변경 가능 (변경 이력은 audit_logs 기록)</li>
+                <li><strong>PortOne 환불 API + webhook</strong>: 환불 요청 시 PortOne 환불 API 호출, webhook 수신으로 환불 완료 확정 (중복 webhook 대비 멱등성 처리 적용)</li>
+                <li><strong>부분 환불</strong>: 현금 + 포인트 분할 환불을 단일 트랜잭션으로 처리하여 정합성 보장 (예: 70% 현금 + 30% 포인트)</li>
+                <li><strong>정산 정합성</strong>: 이미 디자이너에게 정산된 결제 환불 시 → 디자이너 잔액에서 차감 → 다음 정산 사이클 반영. 음수 잔액 발생 시 운영자 알림 + 다음 매출에서 자동 상쇄</li>
+                <li><strong>환불 실패 재시도</strong>: PG 오류·네트워크 오류 발생 시 재시도 큐로 등록(짧은 backoff 간격, 3회 시도). 최종 실패 시 운영자 콘솔 알림</li>
                 <li><strong>환불 영수증·세금계산서</strong>: PortOne이 환불 영수증 자동 발급, 세금계산서는 디자이너 사업자 정보 기반 자동 또는 수동 워크플로우</li>
-                <li><strong>분쟁 처리 워크플로우</strong>: 디자이너↔고객 분쟁 시 운영자 콘솔에서 수동 환불 권한 + 분쟁 이력·증빙 기록</li>
-                <li><strong>audit_logs 보존 (전자상거래법 반영)</strong>: 1년 hot + 2년 콜드(S3 Glacier) = <strong>3년 보관</strong>. 결제 정보 자체는 PortOne에 PCI-DSS 인증으로 보관 (전자상거래법 5년 의무 일부 충족)</li>
+                <li><strong>분쟁 처리</strong>: 디자이너↔고객 분쟁 발생 시 운영자 콘솔에서 수동 환불 권한 + 분쟁 이력·증빙 기록 워크플로우 제공</li>
+                <li><strong>audit_logs 보존</strong>: 1년 hot 보관 (운영 분석·분쟁 대응용). 결제 정보 자체는 PortOne이 PCI-DSS 인증으로 보관하여 전자상거래법 5년 의무를 충족</li>
               </ul>
 
               <h3>2.3 포인트 시스템 (명세서 5.13)</h3>
-              <p>본 항목은 명세서 5.13의 대부분이 production-grade 핀테크/커머스의 표준 사양이므로, 실제 사용되는 패턴 그대로 적용을 권장합니다.</p>
+              <p><strong>구현 방식</strong></p>
               <ul>
-                <li><strong>포인트 ledger (복식부기) — production 표준</strong>: 모든 적립/사용/만료/환불을 거래(transaction)로 ledger에 기록. 잔액은 ledger 합산으로 도출 (캐싱 가능). 토스·카카오페이·네이버페이 등 핀테크 표준 패턴</li>
-                <li><strong>포인트 3종 분리 (회계·세무 필수)</strong>: 활성 포인트 / 마케팅 포인트(가속·웰컴·이벤트) / 환불 포인트. 각 출처·만료·세무 처리가 다르므로 분리 저장 필수</li>
-                <li><strong>FIFO 만료</strong>: 발급 순서대로 사용, 만료 30일·7일·당일 3회 사전 알림 (푸시 + 알림톡). 만료 처리는 매일 자정 cron job</li>
-                <li><strong>환전율</strong>: MVP는 1:1 통일. 다단계 환전(당월 0%/+7%/+10%)은 고도화 D.1에서 도입</li>
-                <li><strong>부정 사용 방지 — production 표준 룰 베이스 FDS (MVP부터 적용)</strong> — 이전 답변 수정:
+                <li><strong>포인트 거래 원장(ledger) 방식</strong>: 모든 적립·사용·만료·환불을 거래로 기록. 잔액은 ledger 합산으로 도출하여 캐싱(Redis)으로 조회 성능 확보. 회계·정산·분쟁 대응이 명확</li>
+                <li><strong>포인트 3종 분리</strong>: 활성 포인트 / 마케팅 포인트(가속·웰컴·이벤트) / 환불 포인트 — 출처·만료·세무 처리가 다르므로 분리 저장</li>
+                <li><strong>FIFO 만료</strong>: 발급 순서대로 사용, 만료 30일 전·7일 전 2회 사전 알림(푸시 + 알림톡 fallback). 만료 처리는 매일 자정 cron job</li>
+                <li><strong>환전율</strong>: MVP는 1:1 통일 (다단계 환전 도입은 고도화 영역에서 협의)</li>
+                <li><strong>결제 시 사용 정책</strong>: 1결제당 최대 50% 포인트 사용, FIFO 차감 (정책 테이블 기반, 운영자 수정 가능)</li>
+                <li><strong>부정 사용 방지 (기본 사양)</strong>:
                   <ul>
-                    <li>동일 디바이스 ID 다중 계정 가입 차단 (디바이스 핑거프린팅)</li>
+                    <li>동일 디바이스 ID 다중 계정 가입 차단 (기본 디바이스 핑거프린팅)</li>
                     <li>일 20회 사용 한도 (임계값 카운터)</li>
-                    <li>단시간 다량 적립 감지 (1분 100건+ 등 룰)</li>
-                    <li>의심 거래 자동 차단 + 운영자 검토 큐</li>
-                    <li>신고 시 자동 차단 + 운영자 콘솔 알림</li>
-                    <li>적발 시 활성 포인트 차감 + 계정 차단 + audit_logs</li>
+                    <li>신고 시 자동 차단 + 운영자 검토 큐</li>
+                    <li>적발 시 활성 포인트 차감 + 계정 정지 + audit_logs 기록</li>
+                    <li>(고도화에서 룰 엔진 추가·이상 패턴 자동 탐지 등 단계적 강화 가능)</li>
                   </ul>
-                  <em>거대 핀테크 수준의 AI 기반 FDS는 고도화 영역이지만, 룰 베이스 FDS는 결제 서비스의 production 표준이므로 MVP부터 적용. 미적용 시 출시 직후 어뷰징 피해 발생 가능 (이전 답변 일부 철회).</em>
                 </li>
-                <li><strong>결제 시 사용</strong>: 1결제당 최대 50% 포인트 사용, FIFO 차감 (정책 테이블 기반, 운영자 수정 가능)</li>
-                <li><strong>포인트 부채 관리</strong>: 발급된 미사용 포인트 = 회사 부채. 관리자 대시보드에서 실시간 모니터링 (명세서 11.6 반영)</li>
+                <li><strong>포인트 부채 관리</strong>: 발급된 미사용 포인트 = 회사 부채로 인식. 관리자 콘솔에 포인트 부채 잔액 대시보드 제공 (명세서 11.6 반영)</li>
               </ul>
 
               <h3>2.4 실시간 동기화 (명세서 5.11)</h3>
-              <p>본 프로젝트에서 진짜 양방향 실시간 통신이 필요한 시나리오는 없습니다(채팅·협업 편집 등 없음). 대신 production 결제 서비스에서 표준으로 사용되는 <strong>FCM 푸시 + webhook 멱등성 처리 + 야간 reconciliation</strong> 패턴을 적용합니다.</p>
+              <p><strong>알림 처리</strong></p>
               <ul>
-                <li><strong>FCM 푸시 (production 표준 패턴)</strong>:
-                  <ul>
-                    <li>웨이팅 큐 1순위 알림·예약 확정·취소 알림 → FCM 푸시 (앱 백그라운드 포함 즉시 도달)</li>
-                    <li><strong>BullMQ 푸시 큐</strong>로 비동기 처리 (트래픽 폭증 시 안정성)</li>
-                    <li><strong>실패 fallback chain</strong>: FCM 실패 → 알림톡 → SMS (결제·긴급 한정) → 이메일 (영수증)</li>
-                    <li><strong>푸시 토큰 관리</strong>: 디바이스 토큰 만료 자동 감지·갱신, 만료 토큰 제거</li>
-                    <li><strong>푸시 발송 로그</strong>: audit_logs (사용자 클레임 대응 + 도달률 모니터링)</li>
-                    <li><strong>딥링크 처리</strong>: 푸시 클릭 → 앱 내 특정 화면 직접 이동 (예약 상세, 결제 등)</li>
-                  </ul>
-                </li>
-                <li><strong>관리자 대시보드 갱신</strong>: 30~60초 폴링으로 충분 (SSE 필요 시 추가). WebSocket 인프라 불필요</li>
-                <li><strong>결제 webhook 처리 (production 표준)</strong>:
-                  <ul>
-                    <li>PortOne webhook 수신 → <strong>멱등성 검증 (idempotency_key + DB unique constraint)</strong> — PG가 중복 호출 가능하므로 필수</li>
-                    <li>주문 상태 업데이트 → 사용자/디자이너 알림</li>
-                    <li>Webhook 실패 시 PortOne이 자동 재시도 (1분, 5분, 15분, 1시간 backoff)</li>
-                    <li>백엔드에서 PortOne API로 결제 결과 재검증 (webhook 신뢰 보강, 위변조 방어)</li>
-                  </ul>
-                </li>
-                <li><strong>결제 reconciliation (production 표준)</strong>:
-                  <ul>
-                    <li>매일 03:00 야간 배치로 PortOne 정산 데이터와 우리 DB 일치 여부 검증</li>
-                    <li>불일치 시 Slack 알림 + 운영자 콘솔 표시</li>
-                    <li>운영자가 수동 조정 + 사유 기록 (audit_logs)</li>
-                  </ul>
-                </li>
-                <li><strong>RLS — production 표준 (이전 답변 수정)</strong>: 본 서비스는 디자이너 데이터 격리가 핵심이므로 <strong>PostgreSQL native RLS를 처음부터 적용</strong>. 모든 디자이너 종속 테이블(예약/처방전/쿠폰/포인트/단골관계)에 정책 적용 + JWT 클레임에서 designer_id 추출. ORM 레벨 인터셉터로 이중 방어. Supabase는 인프라 종속성 회피 차원에서 미사용 (자체 PostgreSQL 운영)</li>
-                <li><strong>WebSocket 도입 시점</strong>: 양방향 실시간 기능(채팅·협업·라이브) 추가 시. 본 MVP에는 해당 없음</li>
+                <li>웨이팅 1순위 알림, 예약 확정·취소 알림 등은 FCM 푸시로 즉시 도달 (앱 백그라운드 포함)</li>
+                <li>푸시 전송은 비동기 큐 기반으로 처리하여 트래픽 폭증 시에도 안정적 운영</li>
+                <li>채널 fallback: FCM 실패 시 알림톡 → SMS(결제·긴급 한정) → 이메일 순으로 진행</li>
+                <li>푸시 토큰 만료 자동 감지·갱신, 만료 토큰 자동 제거</li>
+                <li>푸시 발송 결과는 audit_logs 기록 (도달률 모니터링 + 클레임 대응)</li>
+                <li>푸시 클릭 시 앱 내 특정 화면으로 직접 이동(딥링크 처리)</li>
+              </ul>
+
+              <p><strong>관리자 대시보드</strong></p>
+              <ul>
+                <li>30~60초 폴링으로 통계 갱신 (별도 WebSocket 인프라 없이 충분히 운영 가능)</li>
+              </ul>
+
+              <p><strong>결제 webhook 처리</strong></p>
+              <ul>
+                <li>PortOne webhook 수신 시 멱등성 키 + DB unique constraint로 중복 호출 방어 (PG가 webhook 재전송하는 경우 대응)</li>
+                <li>주문 상태 업데이트 → 사용자·디자이너 알림 발송</li>
+                <li>백엔드에서 PortOne API로 결제 결과를 한 번 더 검증하여 webhook 신뢰성 보강 (위변조 방어)</li>
+                <li>Webhook 처리 실패 시 PortOne의 자동 재시도(1분 → 5분 → 15분 → 1시간 backoff)와 연계</li>
+              </ul>
+
+              <p><strong>결제 정합성 검증</strong></p>
+              <ul>
+                <li>매일 03:00 야간 배치로 PortOne 정산 데이터와 자체 DB 정산 ledger의 일치 여부 검증</li>
+                <li>불일치 발견 시 Slack 알림 + 운영자 콘솔 표시. 운영자가 사유 기록 후 수동 조정(audit_logs)</li>
+              </ul>
+
+              <p><strong>디자이너 데이터 격리</strong></p>
+              <ul>
+                <li>모든 디자이너 종속 테이블에 designer_id 외래키 + 인덱스 적용</li>
+                <li>애플리케이션 레이어에서 ORM 인터셉터로 designer_id 강제 (서비스 레이어 일관성 확보)</li>
+                <li>데이터 격리 강화가 필요한 시점에 PostgreSQL Row-Level Security 정책을 추가 적용하는 방향으로 점진 강화 가능. 처음부터 RLS 적용도 협의 가능</li>
+                <li>Supabase 미사용, 자체 PostgreSQL 운영으로 인프라 종속성 회피</li>
               </ul>
 
               <h3>2.5 결제·정산 핵심 (명세서 5.12)</h3>
+
+              <p><strong>결제 흐름</strong></p>
               <ul>
-                <li><strong>결제 흐름 — PortOne V2 표준 패턴</strong>:
-                  <ul>
-                    <li>클라이언트 → PortOne SDK → PG 결제 페이지 → 결제 완료</li>
-                    <li>백엔드 → PortOne webhook 수신 → <strong>멱등성 검증</strong> + 주문 상태 업데이트</li>
-                    <li>추가로 백엔드에서 PortOne API로 결제 결과 재검증 (위변조 방어, production 표준)</li>
-                    <li>결제 정보는 PortOne에 PCI-DSS 인증으로 보관 → 우리 DB는 imp_uid(결제 식별 토큰)만 저장 → KMS 불필요</li>
-                  </ul>
-                </li>
-                <li><strong>결제 우선순위</strong>: 포인트 → 쿠폰 → 카드(잔액). 정책 테이블 기반 (운영자 수정 가능). <code>policy_snapshot_at_order</code> 컬럼으로 결제 시점 정책 스냅샷 저장 (소급 변경 방지)</li>
-                <li><strong>마진 비율</strong>: MVP 통일 5:5. 고도화에서 디자이너 등급별 4:6 / 5.5:4.5 / 6:4 분기. <code>designer_tier_at_order</code> 컬럼으로 결제 시점 등급 스냅샷 저장</li>
-                <li><strong>알림 4채널 — fallback 체인 (동시 발송 X)</strong>: 푸시(앱 활성) → 알림톡(앱 비활성) → SMS(결제/긴급 한정) → 이메일(영수증/공지). 각 채널 도달 실패 시 다음 채널 자동 진행. 채널별 비용 절감 + 도달률 극대화</li>
-                <li><strong>정산 처리 — production 표준 (정산 ledger 복식부기)</strong>:
-                  <ul>
-                    <li><strong>모든 거래를 차변/대변으로 ledger 기록</strong> (매출/플랫폼 수수료/디자이너 수익/환불/위약금/송금) — 회계 정합성·세무 대응·분쟁 추적</li>
-                    <li>매일 03:00 cron job으로 전일 정산 데이터 집계 + 디자이너별 잔액 업데이트</li>
-                    <li>디자이너 송금 요청 → 운영자 콘솔에서 검토 → 송금 처리 (수동 승인 + 자동 이체 또는 수동 이체 분기)</li>
-                    <li>월간 정산 보고서 자동 생성 (PDF + CSV, 디자이너 다운로드)</li>
-                  </ul>
-                </li>
-                <li><strong>세금계산서·현금영수증 — production 표준</strong>:
-                  <ul>
-                    <li>디자이너 사업자(개인사업자/법인) 정보 기반 자동 발행 (포트원 또는 빌터 등 연동) 또는 수동 발행 워크플로우</li>
-                    <li>고객 현금영수증 자동 발행 (포트원 부가 서비스)</li>
-                    <li>분기·연 단위 세무 신고 자료 CSV 자동 출력</li>
-                  </ul>
-                </li>
-                <li><strong>매출 reconciliation — production 필수</strong>: 매일 03:00 야간 배치로 PortOne 정산 데이터와 우리 정산 ledger 일치 여부 검증. 불일치 시 Slack 알림 + 운영자 콘솔. 운영자가 수동 조정 + 사유 audit_logs</li>
-                <li><strong>보안 (KMS 도입 여부)</strong>:
-                  <ul>
-                    <li>카드 정보: PortOne 보관(PCI-DSS) → 우리는 토큰만 → KMS 불필요</li>
-                    <li>개인정보(이름·휴대폰·생년월일·계좌번호): <strong>AES-256 컬럼 암호화 필수 (production 표준)</strong>. KMS 키로 컬럼 암호화 키 관리 권장 → KMS는 PII 컬럼 암호화 키 관리 용도로 도입</li>
-                    <li>환경 변수·API 키: AWS Secrets Manager</li>
-                  </ul>
-                </li>
+                <li>클라이언트 → PortOne SDK → PG 결제 페이지 → 결제 완료</li>
+                <li>백엔드는 PortOne webhook을 수신하면 멱등성 검증 후 주문 상태 업데이트</li>
+                <li>추가로 백엔드에서 PortOne API로 결제 결과를 재검증하여 위변조 방어</li>
+                <li>결제 정보는 PortOne에 PCI-DSS 인증으로 보관되어 자체 DB에는 imp_uid(결제 식별 토큰)만 저장</li>
               </ul>
 
-              <h3>2.6 QR 디퍼드 딥링크 (명세서 5.6) — 자체 구현 production-grade</h3>
-              <blockquote><strong>결론: 자체 QR + Universal Link/App Link + Android Install Referrer + 휴대폰 번호 매칭으로 production-grade 구현 가능.</strong> Branch.io/AppsFlyer 등 외부 솔루션 종속·비용·사망 리스크(Firebase Dynamic Links 2025.08 종료) 회피.</blockquote>
-              <p><strong>Production-grade 자체 구현 아키텍처:</strong></p>
+              <p><strong>결제 우선순위 및 정책 스냅샷</strong></p>
+              <ul>
+                <li>결제 시 차감 순서: 포인트 → 쿠폰 → 카드(잔액). 정책 테이블 기반으로 운영자 수정 가능</li>
+                <li>결제 시점 정책 스냅샷(<code>policy_snapshot_at_order</code>) 컬럼 저장 — 정책 변경 시 소급 적용 방지</li>
+              </ul>
+
+              <p><strong>마진 비율</strong></p>
+              <ul>
+                <li>MVP 통일 5:5</li>
+                <li>(고도화에서 디자이너 등급별 4:6 / 5.5:4.5 / 6:4 분기 도입 가능)</li>
+                <li>결제 시점 등급 스냅샷(<code>designer_tier_at_order</code>) 컬럼 저장</li>
+              </ul>
+
+              <p><strong>알림 채널 정책</strong></p>
+              <ul>
+                <li>단계적 fallback 방식 (동시 발송 X): 푸시(앱 활성) → 알림톡(앱 비활성) → SMS(결제·긴급 한정) → 이메일(영수증·공지)</li>
+                <li>각 채널 도달 실패 시 다음 채널로 자동 진행. 채널별 비용 절감 + 도달률 균형 확보</li>
+              </ul>
+
+              <p><strong>정산 처리</strong></p>
+              <ul>
+                <li>정산 거래 원장(ledger) 방식 — 매출 / 플랫폼 수수료 / 디자이너 수익 / 환불 / 위약금 / 송금을 거래로 기록하여 회계 정합성과 세무 대응 확보</li>
+                <li>매일 03:00 cron job으로 전일 정산 데이터 집계 + 디자이너별 잔액 업데이트</li>
+                <li>디자이너 송금 요청 → 운영자 콘솔에서 검토 → 송금 처리 (수동 승인 후 자동 이체 또는 수동 이체)</li>
+                <li>월간 정산 보고서 자동 생성 (PDF + CSV, 디자이너 다운로드)</li>
+              </ul>
+
+              <p><strong>세금계산서·현금영수증</strong></p>
+              <ul>
+                <li>디자이너 사업자 정보 기반 세금계산서 자동 발행 워크플로우 (PortOne 부가 서비스 또는 빌터 연동)</li>
+                <li>고객 현금영수증 자동 발행 (PortOne 부가 서비스)</li>
+                <li>분기·연 단위 세무 신고 자료 CSV 자동 출력</li>
+              </ul>
+
+              <p><strong>매출 정합성 검증</strong></p>
+              <ul>
+                <li>매일 03:00 야간 배치로 PortOne 정산 데이터와 자체 정산 ledger의 일치 여부 검증</li>
+                <li>불일치 발견 시 Slack 알림 + 운영자 콘솔에 표시. 운영자가 사유 기록 후 수동 조정</li>
+              </ul>
+
+              <p><strong>보안</strong></p>
+              <ul>
+                <li>카드 정보: PortOne(PCI-DSS) 보관, 자체 DB는 결제 토큰만 저장</li>
+                <li>개인정보(이름·휴대폰·생년월일·계좌번호·사업자번호): AES-256 컬럼 암호화 적용</li>
+                <li>환경 변수·API 키: AWS Secrets Manager로 관리</li>
+                <li>(개인정보 컬럼 암호화 키 관리에 AWS KMS 도입 가능 — 옵션)</li>
+              </ul>
+
+              <h3>2.6 QR 디퍼드 딥링크 (명세서 5.6)</h3>
+              <p><strong>솔루션 선택 — 자체 구현 제안</strong></p>
+              <p>외부 솔루션(Branch.io 등) 도입 없이 자체 구현으로 진행 가능하다고 판단됩니다. 자체 QR + Universal Link/App Link + Android Install Referrer + 휴대폰 번호 매칭 조합으로 본 서비스가 필요로 하는 매칭 정확도를 확보할 수 있고, 외부 솔루션 종속성·운영 비용·서비스 종료 리스크(Firebase Dynamic Links 2025.08 종료 사례)도 회피할 수 있습니다. 향후 MAU·매칭 손실률 추이를 보고 외부 솔루션 도입을 재검토하는 방향이 합리적입니다.</p>
+
+              <p><strong>구현 아키텍처</strong></p>
               <ol>
                 <li><strong>QR 생성</strong>
                   <ul>
-                    <li>디자이너 가입 시 unique slug 발급 (예: <code>abc123</code>)</li>
-                    <li>QR URL: <code>https://mydesigner.com/d/abc123?utm_source=qr&utm_medium=offline&utm_campaign=designer_abc123</code></li>
-                    <li>UTM 파라미터로 매칭 분석 가능 (production 표준)</li>
-                    <li>QR URL에 만료 시간(예: 90일) + 인증된 디자이너만 생성 + 사용 추적 audit_logs</li>
+                    <li>디자이너 가입 시 고유 식별자(slug) 발급</li>
+                    <li>QR URL 형식: <code>https://mydesigner.com/d/{slug}?utm_source=qr...</code></li>
+                    <li>UTM 파라미터로 유입 분석 지원</li>
+                    <li>QR 만료 시간(예: 90일) + 인증된 디자이너만 생성 + 사용 추적 audit_logs</li>
                   </ul>
                 </li>
-                <li><strong>딥링크 도메인 검증 파일 호스팅 — production 필수</strong>
+                <li><strong>딥링크 도메인 검증 파일 호스팅 (필수)</strong>
                   <ul>
-                    <li>iOS: <code>https://mydesigner.com/.well-known/apple-app-site-association</code> 호스팅 (Universal Link 작동 조건)</li>
-                    <li>Android: <code>https://mydesigner.com/.well-known/assetlinks.json</code> 호스팅 (App Link 작동 조건)</li>
-                    <li>이 파일이 없으면 Universal Link/App Link가 정상 작동하지 않으므로 production 필수 단계</li>
+                    <li>iOS: <code>apple-app-site-association</code> 호스팅 (Universal Link 작동 조건)</li>
+                    <li>Android: <code>assetlinks.json</code> 호스팅 (App Link 작동 조건)</li>
                   </ul>
                 </li>
-                <li><strong>URL 라우팅 (랜딩 페이지)</strong>
+                <li><strong>URL 라우팅</strong>
                   <ul>
-                    <li><strong>일반 브라우저 + 앱 설치</strong>: Universal Link/App Link 자동 작동 → 앱이 designer_id 받아 매칭</li>
-                    <li><strong>일반 브라우저 + 앱 미설치</strong>: Play Store/App Store 다운로드 페이지 리디렉트</li>
-                    <li><strong>카카오톡 인앱 브라우저</strong>: User-Agent 감지(<code>KAKAOTALK</code> 포함) → 폴백 페이지로 "Chrome/Safari에서 열기" 안내. Android는 <code>intent://</code> 스킴으로 외부 브라우저 직접 호출</li>
+                    <li>앱 설치 + 일반 브라우저: Universal Link/App Link 자동 작동 → 앱이 designer_id 받아 매칭</li>
+                    <li>앱 미설치: Play Store / App Store 다운로드 페이지 리디렉트</li>
+                    <li>카카오톡 인앱 브라우저: User-Agent 감지 → 폴백 페이지에서 "Chrome/Safari로 열기" 안내. Android는 <code>intent://</code> 스킴으로 외부 브라우저 직접 호출</li>
                   </ul>
                 </li>
-                <li><strong>디퍼드 매칭 (앱 미설치 → 설치 후 첫 실행)</strong>
+                <li><strong>디퍼드 매칭 (앱 미설치 → 설치 후 매칭)</strong>
                   <ul>
-                    <li><strong>Android — Google Play Install Referrer API (production 표준)</strong>
+                    <li><strong>Android</strong>: Google Play Install Referrer API (공식·무료, 정확도 99%+). Play Store URL에 designer_id가 referrer로 자동 첨부되며, 앱 첫 실행 시 자동 수신하여 매칭</li>
+                    <li><strong>iOS (다중 폴백 전략)</strong>
                       <ul>
-                        <li>공식·무료, 정확도 99%+. Play Store URL에 <code>referrer=designer_id=abc123</code> 자동 추가</li>
-                        <li>앱 첫 실행 시 <code>InstallReferrerClient</code>로 자동 수신 → designer_id 매칭</li>
-                        <li>가장 안정적이고 검증된 방식 (Branch.io 등 솔루션도 내부적으로 이 API 사용)</li>
-                      </ul>
-                    </li>
-                    <li><strong>iOS — 다중 폴백 전략 (Apple 디퍼드 어트리뷰션 공식 미지원)</strong>
-                      <ul>
-                        <li><strong>(a) 휴대폰 번호 매칭 — production 최고 정확도 권장</strong>: 디자이너가 매장에서 "단골 등록" 기능으로 고객 휴대폰 등록 → 사용자가 가입할 때 휴대폰 일치 시 자동 단골 매칭. 솔루션보다 정확하고 비즈니스 흐름에도 자연스러움</li>
-                        <li><strong>(b) 환영 화면 추천 코드 입력</strong>: 앱 첫 실행 시 "어떤 디자이너의 추천으로 오셨나요?" 화면 + 디자이너 검색</li>
-                        <li><strong>(c) Apple Search Ads API</strong>: 광고 캠페인 한정 사용 (일반 QR은 미적용)</li>
-                        <li><strong>(d) Pasteboard 매칭</strong>: 디자이너 페이지에서 클립보드 복사 → 앱 첫 실행 시 클립보드 읽기 (iOS 14+ 권한 알림 발생, UX 저하로 비권장)</li>
+                        <li>(a) <strong>휴대폰 번호 매칭</strong>: 디자이너가 매장에서 단골 고객의 휴대폰 번호를 사전 등록 → 사용자가 가입 시 휴대폰이 일치하면 자동 단골 매칭. 비즈니스 흐름에 자연스럽게 통합되며 정확도가 높음</li>
+                        <li>(b) 환영 화면 추천 코드 입력 — 앱 첫 실행 시 "어떤 디자이너의 추천으로 오셨나요?" 화면 + 디자이너 검색</li>
+                        <li>(c) Apple Search Ads API (광고 캠페인 한정 사용)</li>
                       </ul>
                     </li>
                   </ul>
                 </li>
-                <li><strong>매칭 정확도 모니터링 — production 필수</strong>
+                <li><strong>매칭 정확도 모니터링</strong>
                   <ul>
-                    <li>매칭 성공/실패 로그 → 자체 분석 도구 또는 Mixpanel/Amplitude</li>
-                    <li>매칭 손실률 지속 모니터링 → 5%+ 초과 시 솔루션 도입 재검토 트리거</li>
-                    <li>운영자 콘솔에 디자이너별 QR 유입 통계 대시보드 제공</li>
+                    <li>매칭 성공/실패 로그를 운영자 콘솔 대시보드에 표시</li>
+                    <li>매칭 손실률이 일정 임계값을 초과하면 외부 솔루션 도입을 재검토</li>
+                    <li>디자이너별 QR 유입 통계 제공</li>
                   </ul>
                 </li>
-                <li><strong>예상 매칭 정확도</strong>: Android 99%+ / iOS 95%+ (휴대폰 매칭 + 환영 화면 폴백 포함). 솔루션 도입 시(99%+) 대비 큰 차이 없음</li>
-                <li><strong>솔루션 도입 트리거 (Phase 2)</strong>: MAU 100K + iOS 매칭 손실률 5%+ + 비즈니스 손해 누적 시 → Branch.io / Adjust 도입 검토 (자체 구현 폴백 그대로 유지)</li>
+                <li><strong>예상 매칭 정확도</strong>: Android 99%+ / iOS 95% 내외 (휴대폰 매칭 + 환영 화면 폴백 포함)</li>
+                <li><strong>향후 솔루션 도입 검토 시점</strong>: MAU 증가에 따른 iOS 매칭 손실률이 비즈니스 손해로 누적되는 시점에 Branch.io 또는 Adjust 도입 재검토 (자체 구현 폴백은 유지)</li>
               </ol>
-              <p><strong>왜 자체 구현이 production-grade에서도 적합한가:</strong></p>
-              <ul>
-                <li>비용 절약 (Branch.io 유료 플랜 월 $59~$199부터, AppsFlyer 더 비쌈)</li>
-                <li>외부 종속성 제거 — Firebase Dynamic Links 2025.08 종료 사례처럼 솔루션이 사라지면 마이그레이션 비용 발생</li>
-                <li>Android Install Referrer만 잘 활용해도 정확도 99%+ — 솔루션과 동등</li>
-                <li>iOS는 어차피 Apple이 공식 디퍼드 어트리뷰션을 막아두었으므로 솔루션도 결국 휴대폰 매칭·환영 화면 같은 폴백에 의존 → 자체 구현과 매칭 정확도 비슷</li>
-                <li>본 MVP의 핵심 유입은 매장 현장 QR 스캔 → 디자이너가 옆에서 안내하면 매칭 정확도 100% 가능 (오프라인 흐름이 솔루션 의존도를 낮춤)</li>
-              </ul>
 
               <h3>2.7 인프라·보안·데이터 보존 (명세서 5.6.4, 6.3, 9)</h3>
-              <p>본 서비스는 결제·정산·개인정보를 다루는 production 서비스이므로 MVP 단계에서도 다음 사양을 표준으로 적용합니다. (이전 답변의 일부 "확장 시점 도입" 권고는 production-grade 기준으로 상향 조정)</p>
+
+              <p><strong>DB 인프라</strong></p>
               <ul>
-                <li><strong>DB 인프라 — RDS Multi-AZ 표준 적용 (이전 답변 상향)</strong>:
-                  <ul>
-                    <li>결제·정산 서비스는 가용성이 비즈니스 핵심이므로 production 표준으로 Multi-AZ 적용</li>
-                    <li>자동 fallback으로 가용성 99.95%+ (RPO &lt; 5분, RTO &lt; 30분)</li>
-                    <li>단일 인스턴스 대비 약 1.5~2배 비용이지만 production 필수</li>
-                    <li>자동 백업 일 1회 + 7일 보관(RDS 기본), 추가로 수동 스냅샷 + S3 분기별 장기 보관</li>
-                  </ul>
-                </li>
-                <li><strong>RLS — PostgreSQL native RLS 처음부터 적용 (이전 답변 상향)</strong>:
-                  <ul>
-                    <li>본 서비스는 디자이너 데이터 격리가 비즈니스 핵심이므로 production 표준으로 처음부터 RLS 적용</li>
-                    <li>모든 디자이너 종속 테이블(예약/처방전/쿠폰/포인트/단골관계/매출)에 정책 적용</li>
-                    <li>JWT 클레임에서 designer_id 추출 → PostgreSQL <code>current_setting()</code> 함수로 정책 조건 비교</li>
-                    <li>ORM 레벨 인터셉터로 이중 방어 (DB + 애플리케이션 양쪽에서 격리 강제)</li>
-                    <li>Supabase 미사용 — 자체 PostgreSQL 운영으로 인프라 종속성 회피</li>
-                  </ul>
-                </li>
-                <li><strong>개인정보 보호 — production 표준 + PIPA·전자상거래법 준수</strong>:
-                  <ul>
-                    <li><strong>AES-256 컬럼 암호화</strong>: 이름·휴대폰·생년월일·계좌번호·사업자번호 (필수)</li>
-                    <li>암호화 키는 AWS KMS로 관리 (envelope encryption)</li>
-                    <li>로그 자동 마스킹 (예: 휴대폰 010-****-1234, 이메일 a***@b.com)</li>
-                    <li>권한별 마스킹: 운영자도 권한 범위 외 개인정보는 마스킹 표시</li>
-                    <li>회원 탈퇴 후 보존: PIPA + 전자상거래법 준수 (결제 관련 5년, 일반 정보 즉시 파기 또는 익명화)</li>
-                  </ul>
-                </li>
-                <li><strong>데이터 보존 — 전자상거래법·전자금융거래법 반영 (이전 답변 상향)</strong>:
-                  <ul>
-                    <li><strong>audit_logs: 1년 hot + 2년 콜드(S3 Glacier) = 총 3년 보관</strong> — 결제 관련 분쟁 대응</li>
-                    <li>결제 정보 자체: PortOne에 PCI-DSS 인증으로 영구 보관됨 (전자상거래법 5년 의무 일부 충족)</li>
-                    <li>회원 정보: 전자상거래법에 따라 결제 관련 5년 보관, 그 외 익명화 또는 파기</li>
-                    <li>접속 로그·통신 로그: 통신비밀보호법에 따라 3개월 보관</li>
-                  </ul>
-                </li>
-                <li><strong>백업·복구 — production 표준</strong>:
-                  <ul>
-                    <li>RDS 자동 백업 (일 1회 + 7일 보관) + 수동 스냅샷 (분기별 + S3 장기 보관) = 다중 백업</li>
-                    <li><strong>분기 1회 복구 리허설</strong> (production 필수, 운영 매뉴얼에 절차 명시)</li>
-                    <li>Multi-AZ 자동 failover + 정기 백업으로 DR(재해 복구) 체계 구성</li>
-                  </ul>
-                </li>
-                <li><strong>보안 사양 — production 표준</strong>:
-                  <ul>
-                    <li>HTTPS 강제 (AWS ACM 또는 Let's Encrypt, HSTS 헤더)</li>
-                    <li>JWT Access Token 15분 + Refresh Token 30일 + Rotation, HttpOnly·Secure·SameSite Cookie</li>
-                    <li>RBAC (CASL) — 디자이너/관리자/슈퍼관리자 권한 분리</li>
-                    <li>SQL Injection 방어 (TypeORM/Prisma 사용 + 파라미터 바인딩)</li>
-                    <li>XSS 방어 (CSP 헤더, 입력 sanitize)</li>
-                    <li><strong>Rate Limiting</strong>: API별 IP+계정 단위 (예: 로그인 5회/분, 일반 API 1000회/시간) — production 필수</li>
-                    <li>Helmet.js + CORS 화이트리스트</li>
-                    <li>WAF (AWS WAF, 트래픽 폭증·DDoS 대응 시 추가 도입)</li>
-                  </ul>
-                </li>
-                <li><strong>모니터링 — production 표준</strong>:
-                  <ul>
-                    <li>CloudWatch + Slack 알림 (CPU/메모리/디스크/RDS 임계값)</li>
-                    <li>APM (Sentry) — 에러 실시간 알림 + stack trace + 사용자 컨텍스트</li>
-                    <li>결제·정산 이상 거래 모니터링 — PG 매칭 불일치, 이상 적립/사용 패턴 자동 알림</li>
-                    <li>Uptime 모니터링 (UptimeRobot 또는 자체) + Slack 알림</li>
-                  </ul>
-                </li>
-                <li><strong>키 관리</strong>:
-                  <ul>
-                    <li>AWS Secrets Manager — DB 비밀번호, 외부 API 키 (PortOne, FCM, 알림톡 등)</li>
-                    <li>AWS KMS — 개인정보 컬럼 암호화 키 관리 (envelope encryption)</li>
-                    <li>환경 변수 IAM 권한으로 접근 제한</li>
-                  </ul>
-                </li>
+                <li>RDS PostgreSQL + 자동 백업 일 1회 + 7일 보관 (기본 설정)</li>
+                <li>가용성 강화 옵션으로 Multi-AZ 적용 가능 (단일 인스턴스 대비 비용 약 1.5~2배 증가). MVP 출시 단계에서는 단일 인스턴스 + 자동 백업으로 시작 후 트래픽 안정화 시점에 Multi-AZ 전환을 권장 드리며, 처음부터 Multi-AZ 적용도 협의 가능합니다</li>
+                <li>분기별 수동 스냅샷 + S3 장기 보관</li>
+                <li>분기 1회 백업 복구 절차 검증 (운영 매뉴얼에 절차 명시)</li>
+              </ul>
+
+              <p><strong>디자이너 데이터 격리</strong></p>
+              <ul>
+                <li>모든 디자이너 종속 테이블에 designer_id 외래키 + 인덱스 적용</li>
+                <li>애플리케이션 레이어(ORM 인터셉터)에서 designer_id 강제 — 서비스 코드 일관성·디버깅 편의성 확보</li>
+                <li>데이터 격리 강화가 필요한 시점에 PostgreSQL Row-Level Security 정책을 단계적으로 추가 적용. 처음부터 RLS 적용을 원하시면 협의 가능합니다</li>
+                <li>Supabase 미사용, 자체 PostgreSQL 운영으로 인프라 종속성 회피</li>
+              </ul>
+
+              <p><strong>개인정보 보호</strong></p>
+              <ul>
+                <li>AES-256 컬럼 암호화: 이름·휴대폰·생년월일·계좌번호·사업자번호</li>
+                <li>암호화 키는 환경 변수 또는 AWS Secrets Manager로 관리 (강화 필요 시 AWS KMS 도입)</li>
+                <li>로그 자동 마스킹 (예: 휴대폰 010-****-1234, 이메일 a***@b.com)</li>
+                <li>운영자 콘솔에서도 권한 범위 외 개인정보는 마스킹 표시</li>
+                <li>회원 탈퇴 후 보존: 결제 관련 5년 보관(전자상거래법), 그 외 즉시 파기 또는 익명화 (PIPA 준수)</li>
+              </ul>
+
+              <p><strong>데이터 보존</strong></p>
+              <ul>
+                <li>audit_logs: 1년 hot 보관 (운영 분석·분쟁 대응용)</li>
+                <li>결제 정보: PortOne에 PCI-DSS 인증으로 보관 → 전자상거래법 5년 의무 충족</li>
+                <li>회원 정보: 전자상거래법 기준 결제 관련 5년 보관, 그 외 익명화 또는 파기</li>
+                <li>접속 로그: 통신비밀보호법 기준 3개월 보관</li>
+              </ul>
+
+              <p><strong>보안 사양</strong></p>
+              <ul>
+                <li>HTTPS 강제 (AWS ACM 또는 Let's Encrypt) + HSTS 헤더</li>
+                <li>JWT Access Token 15분 + Refresh Token 30일 + Rotation 적용</li>
+                <li>HttpOnly·Secure·SameSite Cookie</li>
+                <li>RBAC — 디자이너 / 관리자 / 슈퍼관리자 권한 분리</li>
+                <li>SQL Injection 방어 (ORM 파라미터 바인딩), XSS 방어 (CSP 헤더, 입력 sanitize)</li>
+                <li>API Rate Limiting (예: 로그인 5회/분, 일반 API IP·계정 단위 임계값)</li>
+                <li>Helmet.js + CORS 화이트리스트</li>
+                <li>(트래픽 폭증·DDoS 대응 강화 필요 시 AWS WAF 도입 옵션)</li>
+              </ul>
+
+              <p><strong>모니터링</strong></p>
+              <ul>
+                <li>CloudWatch + Slack 알림 (CPU·메모리·디스크·RDS 임계값)</li>
+                <li>APM (Sentry) — 에러 실시간 알림 + stack trace + 사용자 컨텍스트</li>
+                <li>결제·정산 이상 거래 모니터링 — PG 매칭 불일치, 이상 적립·사용 패턴 자동 알림</li>
+                <li>Uptime 모니터링 + Slack 알림</li>
+              </ul>
+
+              <p><strong>키 관리</strong></p>
+              <ul>
+                <li>AWS Secrets Manager — DB 비밀번호, 외부 API 키 (PortOne, FCM, 알림톡 등)</li>
+                <li>(개인정보 컬럼 암호화 키 관리에 AWS KMS 도입 옵션)</li>
+                <li>환경 변수는 IAM 권한으로 접근 제한</li>
               </ul>
 
               <h3>2.8 유지보수 (명세서 12장)</h3>
