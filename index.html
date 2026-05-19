@@ -159,7 +159,7 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">내선생님 — 미용 시술 전문가 CRM 앱 MVP</h1>
             <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-600 md:text-base">디자이너의 단골 자산화 + 시술 후 커머스를 결합한 B2B2C SaaS 플랫폼 "내선생님". 인스타그램형 단골 피드 메인 화면, 양방향 웨이팅, 디퍼드 딥링크, 환불·정산 회계 등 핵심 차별화 기능을 4개월 안에 베타 출시 가능한 MVP로 완성하고, 이후 고도화·운영 유지보수까지 단계별로 지원합니다.</p>
             <div class="mt-4 flex flex-wrap items-center gap-2">
-              <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-semibold tracking-[0.12em] text-sky-700">MVP 42,500,000원</span>
+              <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-semibold tracking-[0.12em] text-sky-700">MVP 42,500,000원 (보안 강화 옵션 시 +763~876만)</span>
               <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-semibold tracking-[0.12em] text-sky-700">전체(MVP+고도화) 100,000,000원</span>
               <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-semibold tracking-[0.12em] text-sky-700">유지보수 월 40만원~</span>
               <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-semibold tracking-[0.12em] text-sky-700">MVP 120일 (약 4개월)</span>
@@ -487,8 +487,10 @@
                   <tr><th>구분</th><th>금액 (VAT 별도)</th><th>기간</th><th>비고</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><strong>① MVP 개발</strong></td><td><strong>42,500,000원</strong></td><td>120일 (약 4개월)</td><td>Phase 1 MVP 스코프 (개발 명세서 11장 기준), 옵션 A/B 동일 금액</td></tr>
-                  <tr><td><strong>② 전체 개발</strong><br/>(MVP + 고도화)</td><td><strong>100,000,000원</strong></td><td>약 8~9개월</td><td>MVP 4,250만원 + 고도화 5,750만원 (개발 명세서 부록 D 기준)</td></tr>
+                  <tr><td><strong>① MVP 개발 (베이스라인)</strong></td><td><strong>42,500,000원</strong></td><td>120일 (약 4개월)</td><td>Phase 1 MVP 스코프 (앱 레이어 격리 + 환경 변수 키 관리 기준)</td></tr>
+                  <tr><td>└ 보안 강화 옵션 A (RLS + KMS 90일 자동회전)</td><td>약 50,127,500원 (5,013만)</td><td>약 137일</td><td>베이스라인 + RLS/KMS 옵션 A (+763만 / +13.5 M/D / 백엔드 +2.5주)</td></tr>
+                  <tr><td>└ 보안 강화 옵션 B (RLS + KMS 30일 on-demand)</td><td>약 51,257,500원 (5,126만)</td><td>약 141일</td><td>베이스라인 + RLS/KMS 옵션 B (+876만 / +15.5 M/D / 백엔드 +3주)</td></tr>
+                  <tr><td><strong>② 전체 개발</strong><br/>(MVP + 고도화)</td><td><strong>100,000,000원</strong></td><td>약 8~9개월</td><td>MVP 4,250만원 + 고도화 5,750만원 (개발 명세서 부록 D 기준, 보안 강화 옵션 별도)</td></tr>
                   <tr><td><strong>③ 운영 유지보수</strong></td><td><strong>400,000원/월 ~</strong></td><td>월 단위 별도 계약</td><td>MVP 출시 후 시작, 등급별 차등 (아래 상세)</td></tr>
                 </tbody>
               </table>
@@ -538,6 +540,33 @@
                 <li><strong>옵션 A (디자이너 앱 + 고객 앱 별도 2종) / 옵션 B (공용 단일 앱 + 권한 분리 UI) 동일 금액</strong> — 화면 설계 방식의 차이일 뿐 총 공수는 동일 (옵션 B는 화면 분기 로직, 옵션 A는 모노레포 공통 패키지로 상호 보완)</li>
                 <li>Flutter 시연 코드(UI 70%) 활용 + 유사 프로젝트(매칭 플랫폼 메인 화면·B2B2C SaaS 운영자 콘솔) 수행 경험 반영</li>
                 <li>버퍼 10~15% 포함 (정책 미확정 항목 협의 시간 반영)</li>
+                <li><strong>본 견적은 데이터 격리를 앱 레이어(ORM 인터셉터)로, 암호화 키를 환경 변수 + Secrets Manager로 관리하는 베이스라인 기준입니다.</strong> 명세서가 MVP 요건으로 규정한 PostgreSQL Row-Level Security 정책과 AWS KMS 키 회전 적용을 원하시는 경우 아래 [보안 강화 옵션 A·B]를 선택해 주십시오.</li>
+              </ul>
+
+              <h3>보안 강화 옵션 — RLS + AWS KMS 도입</h3>
+              <p>개발 명세서 부록 C에서 MVP 필수 요건으로 규정한 RLS와 KMS는 베이스라인 견적에 미포함된 상태입니다. 적용을 원하시는 경우 아래 옵션 중 선택해 주십시오. 베이스라인 견적 4,250만원에 옵션 견적이 가산됩니다.</p>
+              <table>
+                <thead>
+                  <tr><th>옵션</th><th>데이터 격리 / 키 관리</th><th>추가 공수</th><th>추가 견적</th><th>합계 (MVP)</th><th>일정 영향</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>기본 (현재 제안)</strong></td><td>앱 레이어 격리(ORM 인터셉터) + 환경 변수 키</td><td>-</td><td>-</td><td><strong>42,500,000원</strong></td><td>120일 (기본)</td></tr>
+                  <tr><td><strong>A. RLS + KMS 90일 자동회전</strong></td><td>PostgreSQL Row-Level Security 정책 + AWS KMS 90일 자동 키 회전 (KMS 기본 기능 활용)</td><td>+13.5 M/D</td><td>+7,627,500원</td><td><strong>약 50,127,500원 (5,013만)</strong></td><td>백엔드 +약 2.5주</td></tr>
+                  <tr><td><strong>B. RLS + KMS 30일 on-demand</strong></td><td>PostgreSQL Row-Level Security 정책 + AWS KMS 30일 on-demand 키 회전 (자체 자동화 Lambda 추가)</td><td>+15.5 M/D</td><td>+8,757,500원</td><td><strong>약 51,257,500원 (5,126만)</strong></td><td>백엔드 +약 3주</td></tr>
+                </tbody>
+              </table>
+
+              <p><strong>세부 공수 합산</strong></p>
+              <ul>
+                <li>옵션 A: <strong>8 M/D (RLS 정책 설계·적용·테스트) + 5.5 M/D (KMS 공통 통합·키 관리·CloudTrail 감사) + 0 M/D (90일 자동 회전 — AWS KMS 기본 기능)</strong> = 13.5 M/D × 56.5만원/MD ≈ 7,627,500원</li>
+                <li>옵션 B: <strong>8 M/D (RLS) + 5.5 M/D (KMS 공통) + 2 M/D (30일 on-demand 자동화 — Lambda 스케줄러·롤오버 검증)</strong> = 15.5 M/D × 56.5만원/MD ≈ 8,757,500원</li>
+              </ul>
+
+              <p><strong>일정 영향</strong></p>
+              <ul>
+                <li>현재 견적은 120일 안에 75 M/D를 압축하고 있으며, 백엔드가 이미 20 M/D로 가장 무거운 항목입니다.</li>
+                <li>옵션 A/B 선택 시 RLS 정책 설계·적용·테스트 + KMS 인프라 셋업·키 관리 작업이 백엔드 트랙에 추가되어 약 2.5~3주의 백엔드 일정 추가가 필요합니다.</li>
+                <li>옵션 선택 시 총 MVP 기간은 약 137~141일(약 4.5~4.7개월)로 조정됩니다.</li>
               </ul>
 
               <h2>② 고도화 견적 — 추가 57,500,000원 (전체 합산 100,000,000원)</h2>
@@ -794,6 +823,8 @@
               <blockquote>총 120일(약 4개월) 기준 단계별 마일스톤 및 산출물을 제안합니다.</blockquote>
 
               <p><strong>실무 워크플로우 반영</strong>: 와이어프레임(Figma) 선행 → 서비스 플로우 확정 → 디자인 작업과 백엔드 작업 병렬 진행 → 디자인 확정 후 프론트엔드 본격 착수. 본 일정은 옵션 A(디자이너 앱 + 고객 앱 별도 2종) 기준이며, 두 앱은 Flutter 모노레포(melos)로 공통 위젯·API 클라이언트·도메인 모델을 공유합니다.</p>
+
+              <p><strong>보안 강화 옵션(RLS+KMS) 선택 시 일정 영향</strong>: 견적서의 보안 강화 옵션 A·B 선택 시 RLS 정책 설계·적용·테스트 + AWS KMS 인프라 셋업 작업이 백엔드 트랙에 추가되어 백엔드 일정이 약 2.5~3주 추가됩니다. 총 MVP 기간은 약 137~141일(약 4.5~4.7개월)로 조정됩니다.</p>
 
               <h2>전체 일정 요약</h2>
               <table>
@@ -1196,12 +1227,17 @@
                 <li>본 reconciliation은 자체 회계 데이터의 무결성 검증입니다 (결제사와의 외부 매칭이 아니라 자체 DB 내부의 거래 합계 vs 잔액 검증)</li>
               </ul>
 
-              <p><strong>RLS — PostgreSQL Row-Level Security 정책 적용</strong></p>
+              <p><strong>RLS — 보안 강화 옵션 (A·B) 선택 시 적용</strong></p>
               <ul>
-                <li>본 서비스는 디자이너 데이터 격리가 핵심이므로 MVP부터 PostgreSQL Row-Level Security 정책을 적용합니다</li>
-                <li>모든 디자이너 종속 테이블(예약·처방전·쿠폰·포인트·단골관계·매출)에 designer_id 기반 RLS 정책 적용</li>
-                <li>JWT 클레임에서 designer_id 추출 → PostgreSQL <code>current_setting()</code> 함수로 정책 조건 비교</li>
-                <li>ORM 레벨 인터셉터로 이중 방어 (DB + 애플리케이션 양쪽에서 격리 강제)</li>
+                <li><strong>현재 견적(4,250만원)은 베이스라인 기준</strong>: 애플리케이션 레이어(ORM 인터셉터)에서 designer_id를 강제로 격리하는 방식</li>
+                <li>명세서가 MVP 요건으로 규정한 PostgreSQL Row-Level Security 정책 적용은 견적서의 <strong>[보안 강화 옵션 A·B]</strong> 선택 시 포함됩니다 (RLS 8 M/D 추가)</li>
+                <li>옵션 선택 시 적용 내용:
+                  <ul>
+                    <li>모든 디자이너 종속 테이블(예약·처방전·쿠폰·포인트·단골관계·매출)에 designer_id 기반 RLS 정책 적용</li>
+                    <li>JWT 클레임에서 designer_id 추출 후 PostgreSQL <code>current_setting()</code> 함수로 정책 조건 비교</li>
+                    <li>ORM 레벨 인터셉터로 이중 방어 — DB와 애플리케이션 양쪽에서 격리 강제</li>
+                  </ul>
+                </li>
                 <li>Supabase는 사용하지 않고 자체 PostgreSQL 운영 (인프라 종속성 회피)</li>
               </ul>
 
@@ -1222,12 +1258,18 @@
                 <li>발송 결과는 audit_logs 기록 (도달률 모니터링·클레임 대응)</li>
               </ul>
 
-              <p><strong>AWS KMS 키 회전 + 디자이너별 단골 데이터 암호화</strong></p>
+              <p><strong>AWS KMS 키 회전 + 디자이너별 단골 데이터 암호화 — 보안 강화 옵션 (A·B) 선택 시 적용</strong></p>
               <ul>
-                <li>차단된 디자이너의 단골 데이터는 별도 격리 영역에 보관</li>
-                <li>단골 데이터는 AES-256 컬럼 암호화 적용, 암호화 키는 AWS KMS로 관리</li>
-                <li>AWS KMS 자동 키 회전 기능 활용 — 30일 주기 자동 회전 정책 적용</li>
-                <li>키 사용 이력은 CloudTrail로 자동 기록 (감사 추적)</li>
+                <li><strong>현재 견적(4,250만원)은 베이스라인 기준</strong>: 차단 디자이너 단골 데이터를 AES-256으로 암호화하되, 키는 환경 변수 + AWS Secrets Manager로 관리</li>
+                <li>명세서가 MVP 요건으로 규정한 AWS KMS 키 회전 적용은 견적서의 <strong>[보안 강화 옵션 A·B]</strong> 선택 시 포함됩니다 (KMS 공통 5.5 M/D + 옵션 A는 90일 자동/옵션 B는 30일 on-demand 2 M/D 추가)</li>
+                <li>옵션 선택 시 적용 내용:
+                  <ul>
+                    <li>차단 디자이너 단골 데이터는 별도 격리 영역에 보관, AES-256 + AWS KMS 관리 키로 컬럼 암호화</li>
+                    <li><strong>옵션 A (90일 자동회전)</strong>: AWS KMS 기본 자동 키 회전 기능 활용 (별도 자동화 구현 불필요)</li>
+                    <li><strong>옵션 B (30일 on-demand)</strong>: 30일 주기 on-demand 키 회전 자동화 — Lambda 스케줄러 + 롤오버 검증 자체 구현</li>
+                    <li>키 사용 이력은 CloudTrail로 자동 기록 (감사 추적)</li>
+                  </ul>
+                </li>
               </ul>
 
               <p><strong>복합 인증 자동 검증 (재활성화 조건)</strong></p>
@@ -1298,12 +1340,17 @@
 
               <h3>2.7 디자이너 데이터 격리 + 권한 제어 (명세서 5.6.4, 6.3, 9)</h3>
 
-              <p><strong>RLS — PostgreSQL Row-Level Security 정책 적용</strong></p>
+              <p><strong>RLS — 보안 강화 옵션 (A·B) 선택 시 적용</strong></p>
               <ul>
-                <li>본 서비스는 디자이너 데이터 격리가 비즈니스 핵심이므로 MVP부터 PostgreSQL Row-Level Security 정책을 적용합니다</li>
-                <li>모든 디자이너 종속 테이블(예약·처방전·쿠폰·포인트·단골관계·매출)에 designer_id 외래키 + 인덱스 + RLS 정책 적용</li>
-                <li>JWT 클레임에서 designer_id 추출 후 PostgreSQL <code>current_setting()</code> 함수로 정책 조건 비교</li>
-                <li>ORM 레벨 인터셉터로 이중 방어 — DB와 애플리케이션 양쪽에서 격리 강제</li>
+                <li><strong>현재 견적(4,250만원)은 베이스라인 기준</strong>: 애플리케이션 레이어(ORM 인터셉터·서비스 미들웨어)에서 designer_id 강제로 격리</li>
+                <li>명세서가 MVP 요건으로 규정한 PostgreSQL Row-Level Security 정책 적용은 견적서의 <strong>[보안 강화 옵션 A·B]</strong> 선택 시 포함됩니다 (RLS 8 M/D 추가)</li>
+                <li>옵션 선택 시 적용 내용:
+                  <ul>
+                    <li>모든 디자이너 종속 테이블(예약·처방전·쿠폰·포인트·단골관계·매출)에 designer_id 외래키 + 인덱스 + RLS 정책 적용</li>
+                    <li>JWT 클레임에서 designer_id 추출 후 PostgreSQL <code>current_setting()</code> 함수로 정책 조건 비교</li>
+                    <li>ORM 레벨 인터셉터로 이중 방어 — DB와 애플리케이션 양쪽에서 격리 강제</li>
+                  </ul>
+                </li>
                 <li>Supabase는 사용하지 않고 자체 PostgreSQL 운영 (인프라 종속성 회피)</li>
               </ul>
 
@@ -1326,7 +1373,7 @@
               <p><strong>개인정보 보호 (참고 — 데이터 격리 외 표준 보안 사양)</strong></p>
               <ul>
                 <li>AES-256 컬럼 암호화: 이름·휴대폰·생년월일·계좌번호·사업자번호</li>
-                <li>암호화 키는 AWS KMS로 관리 (자동 키 회전 적용)</li>
+                <li>암호화 키 관리: 베이스라인은 환경 변수 + AWS Secrets Manager, <strong>보안 강화 옵션 A·B 선택 시 AWS KMS 적용</strong></li>
                 <li>로그 자동 마스킹 (예: 휴대폰 010-****-1234)</li>
                 <li>운영자 콘솔에서도 권한 범위 외 개인정보는 마스킹 표시</li>
                 <li>RBAC: 디자이너 / 관리자 / 슈퍼관리자 권한 분리</li>
